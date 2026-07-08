@@ -37,3 +37,4 @@ function m.read_json(path)
 end
 
 
+return m
