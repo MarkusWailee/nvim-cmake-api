@@ -1,4 +1,5 @@
 local helper = {}
+
 function helper.write_file(file_path, src)
 	src = src or ""
 	local dir = vim.fs.dirname(file_path)
@@ -53,24 +54,31 @@ local reply_dir = "build/.cmake/api/v1/reply/"
 local cmake = {
 }
 
-local function get_index_filename()
-	local dirs = helper.read_dir(reply_dir)
-	for _, file in ipairs(dirs) do
-		if file:match("^index") then
-			return file
-		end
-	end
-	error("Failed to find Index path")
-end
 
-function cmake.get_index_json()
+--[[
+returns the index json file
+]]
+function cmake.index_json()
+	local function get_index_filename()
+		local dirs = helper.read_dir(reply_dir)
+		for _, file in ipairs(dirs) do
+			if file:match("^index") then
+				return file
+			end
+		end
+		error("Failed to find Index path")
+	end
 	local index_path = reply_dir .. get_index_filename()
 	local index_json = helper.read_json(index_path)
 	return index_json
 end
 
-function cmake.get_codemodelv2_json()
-	local index_json = cmake.get_index_json()
+--[[
+returns the codemodelv2 json file.
+Used to give information of the entire project
+]]
+function cmake.codemodelv2_json()
+	local index_json = cmake.index_json()
 	local codemodel_filename = index_json.reply["codemodel-v2"].jsonFile
 	if codemodel_filename == nil then
 		error("Could not find file: codemodelv2*.json", 0)
@@ -79,8 +87,11 @@ function cmake.get_codemodelv2_json()
 	return codemodel_json
 end
 
-function cmake.get_targets_json()
-	local codemodel_json = cmake.get_codemodelv2_json()
+--[[
+returns a table of each target json file
+]]
+function cmake.targets_json()
+	local codemodel_json = cmake.codemodelv2_json()
 	if codemodel_json.configurations == nil then
 		error("codemodelv2_json.configurations is nil")
 	end
@@ -95,8 +106,11 @@ function cmake.get_targets_json()
 	return result
 end
 
-function cmake.get_cache_json()
-	local index_json = cmake.get_index_json()
+--[[
+Returns the cache json file containing all the -D variables
+]]
+function cmake.cachev2_json()
+	local index_json = cmake.index_json()
 	local cache_filename = index_json.reply["cache-v2"].jsonFile
 	if cache_filename == nil then
 		error("Could not find file: cache-v2*.json", 0)
@@ -104,20 +118,11 @@ function cmake.get_cache_json()
 	return helper.read_json(reply_dir .. cache_filename)
 end
 
-function cmake.get_cmake_variables()
-	local cache = cmake.get_cache_json()
-	local result = {}
-	for _, v in ipairs(cache) do
-		if v:match("^CMAKE") then
-			table.insert(result, v)
-		end
-	end
-	return result
-end
-
+--[[
+returns all -D flags inside cache-v2-*.json
+]]
 local function get_variables(filter)
-
-	local cache = cmake.get_cache_json()
+	local cache = cmake.cachev2_json()
 	if cache.entries == nil then
 		error("Cache Entries is nil value")
 	end
@@ -131,12 +136,7 @@ local function get_variables(filter)
 	return result
 end
 
---[[
-{
-
-}
-]]
-function cmake.get_user_variables()
+function cmake.user_variables()
 	local function is_user_editable(entry)
 		-- Hide internal cache entries
 		if entry.type == "INTERNAL" or entry.type == "STATIC" then
@@ -160,9 +160,49 @@ function cmake.get_user_variables()
 	return v
 end
 
+function cmake.cmake_variables()
+	local function is_cmake_var(entry)
+		-- Hide internal cache entries
+		if entry.type == "INTERNAL" or entry.type == "STATIC" then
+			return false
+		end
+		-- Hide entries without descriptions
+		if entry.help == "" then
+			return false
+		end
+
+		if entry.type == "FILEPATH" then
+			return false
+		end
+
+		if not entry.name:match("^CMAKE_") then
+			return false
+		end
+
+		return true
+	end
+	local v = get_variables(is_cmake_var)
+	return v
+end
+
 function cmake.generate_api_file()
 	helper.write_file(query_dir .. "codemodel-v2")
 	helper.write_file(query_dir .. "cache-v2")
+end
+
+--[[
+returns a table of all targets and executable paths
+{
+	{ name = "example1", type = "EXECUTABLE", path = "Debug/example1" }
+}
+]]
+function cmake.get_targets()
+	local targets_json = cmake.targets_json()
+	local result = {}
+	for _, t in ipairs(targets_json) do
+		table.insert(result, {name = t.name, type = t.type, path = t.artifacts[1].path})
+	end
+	return result
 end
 
 return cmake
