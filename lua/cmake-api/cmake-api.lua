@@ -186,8 +186,16 @@ function cmake.cmake_variables()
 end
 
 function cmake.generate_api_file()
-	helper.write_file(query_dir .. "codemodel-v2")
-	helper.write_file(query_dir .. "cache-v2")
+	local codemodel_path = query_dir .. "codemodel-v2"
+	local cache_path = query_dir .. "cache-v2"
+
+	if not vim.uv.fs_stat(codemodel_path) then -- ignore when file exists
+		helper.write_file(codemodel_path)
+	end
+
+	if not vim.uv.fs_stat(cache_path) then -- ignore when file exists
+		helper.write_file(cache_path)
+	end
 end
 
 --[[
